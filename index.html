@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <title>IndexedDB変数修正模写</title>
+        <style>
+            body {
+                background-color: gray;
+            }
+        </style>
+    </head>
+    <body>
+
+            <button id="dbReset">（開発用）DB初期化</button> <!-- audioDBを削除 -->
+            <button id="recStart">録音開始</button>
+            <button id="recStop">録音停止して保存</button>
+            <button id="play">再生</button>
+    
+            <button id="shufflePlay">シャッフルして再生</button>
+
+            <button onclick="playStart()">かるた開始ボタン</button>
+
+            <button onclick="playNext()">次の札</button>
+    
+            <h2>保存された音声の一覧</h2>
+            <ul id="list"></ul>
+
+        <script>
+            let db;//変数データベースを定義
+            let mediaRecorder;//メディアレコーダーを定義
+            let chunks = [];//録音したやつを入れる配列を定義
+
+            //DBを開く
+            const request = indexedDB.open("audioDB",1);
+            request.onupgradeneeded = event =>{
+                db = event.target.result;
+
+                if(!db.objectStoreNames.contains("voices")){
+                    db.createObjectStore("voices",{keyPath:"id",autoIncrement:true});
+                }
+            };
+
+            request.onsuccess = event =>{ //リクエストが成功したら{}の中を実行
+                db = event.target.result;
+            };
+
+            //録音開始
+            document.getElementById("recStart").onclick = async ()=>{
+                const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+                mediaRecorder = new MediaRecorder(stream);
+                chunks = [];
+
+                mediaRecorder.ondataavailable = event => chunks.push(event.data); //リクエストが成功した=>を実行
+                mediaRecorder.start();
+            };
+
+            
+
+            //停止して保存
+            document.getElementById("recStop").onclick = () =>{
+                mediaRecorder.stop();
+                
+                mediaRecorder.onstop = () =>{
+                    const blob = new Blob(chunks,{type:"audio/webm"});
+
+                    const tx = db.transaction("voices","readwrite");
+                    const store = tx.objectStore("voices");
+                    const req = store.count(); //storeの数を数える。非同期なのでonsuccessが必要
+
+                    req.onsuccess = () =>{
+                        store.add({audio:blob});//idはautoIncrementで自動付与※削除してもidは戻らない
+                        console.log(`voices は ${req.result} 件あります`);
+                    }
+                    tx.oncomplete = () => {
+                      console.log("count 完了");
+                      showList();
+                    };
+                };
+            };
+
+            //再生
+            document.getElementById("play").onclick = () =>{
+                const tx = db.transaction("voices","readonly");
+                const store = tx.objectStore("voices");
+                const req = store.getAll();
+
+                req.onsuccess = () =>{
+                    const last = req.result.at(-1);
+                    const audioURL = URL.createObjectURL(last.audio);
+                    new Audio(audioURL).play();
+                };
+            };
+
+            function showList(){
+                const ul = document.getElementById("list");
+                ul.innerHTML = "";//一度クリア
+
+                const tx = db.transaction("voices", "readonly");
+                const store = tx.objectStore("voices");
+                const req = store.getAll();
+
+                req.onsuccess = () =>{
+                    const results = req.result;
+
+                    results.forEach(element => {
+                        const li = document.createElement("li");
+
+                        const playbtn = document.createElement("button");
+                        playbtn.textContent = "再生";
+                        playbtn.onclick = ()=> playSound(element.id);
+
+                        const delBtn = document.createElement("button");
+                        delBtn.textContent = "削除";
+                        delBtn.onclick = () =>deleteSound(element.id);
+
+                        li.textContent = `id${element.id}`;
+
+                        li.appendChild(playbtn);
+                        li.appendChild(delBtn);
+
+                        ul.appendChild(li);
+                        
+                    });
+                }
+            }
+
+            function playSound(id){
+                const tx = db.transaction("voices","readonly");
+                const store = tx.objectStore("voices");
+                const req = store.get(id);
+
+                req.onsuccess = ()=>{
+                    const audioURL = URL.createObjectURL(req.result.audio);
+                    new Audio(audioURL).play();
+                };
+            }
+
+            function deleteSound(id){
+                const tx = db.transaction("voices", "readwrite");
+                const store = tx.objectStore("voices");
+
+                store.delete(id);
+
+                tx.oncomplete = () => {
+                    showList();
+                };
+            }
+
+            function loadIds(){
+                return new Promise(resolve =>{
+                    const tx = db.transaction("voices","readonly");
+                    const store = tx.objectStore("voices");
+        
+                    const ids = [];
+        
+                    store.openCursor().onsuccess = e =>{
+                        const cursor = e.target.result;
+                        if(cursor){
+                            ids.push(cursor.key); //←id
+                            cursor.continue();
+                        }
+                    };
+        
+                    tx.oncomplete = ()=> resolve(ids);
+                });
+            }
+
+            function shuffle(array){
+                for(let i = array.length-1;i>0;i--){
+                    const j = Math.floor(Math.random()*(i+1));
+                    [array[i],array[j]] = [array[j],array[i]];
+                }
+            }
+            
+            //開発用DB削除
+            document.getElementById("dbReset").onclick = () =>{
+                indexedDB.deleteDatabase("audioDB");
+                alert("DBを削除しました。リロードしてください。");
+            }
+
+
+            //シャッフルして再生
+            let shuffledIds = [];
+            let currentIndex = 0;
+
+            async function prepare() {
+                shuffledIds = await loadIds();
+                shuffle(shuffledIds);
+                currentIndex = 0;                
+            }
+
+            async function playStart(){ //prepare()が終わる前に「次の札」ボタンを押せるのを
+                                        // 防ぐためにasyncとawaitを入れる…らしい
+                const result = confirm("かるたをはじめますか？")
+                if(!result) return;
+                showList();
+                await prepare();
+                alert("準備完了！");
+            }
+
+            function playNext(){
+
+                if(currentIndex >= shuffledIds.length){
+                    alert("全部再生しました");
+                    return;
+                }
+                const id = shuffledIds[currentIndex];
+                currentIndex++;
+
+                playSound(id);
+            }
+
+
+            
+            //何枚目かの表示を作る
+            if(!numberOfCards){
+                numberOfCards = document.createElement("h3");
+                numberOfCards.id = numberOfCards;
+                numberOfCards.textContent = `${1}枚目中、${1}枚目`;
+                document.body.appendChild(numberOfCards);
+                
+            }
+                
+
+            </script>
+    </body>
+
+</html>
