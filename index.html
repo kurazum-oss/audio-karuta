@@ -2,11 +2,89 @@
 <html lang="ja">
     <head>
         <meta charset="UTF-8">
-        <title>かるた読み札 録音・再生ページ</title>
+        <title>IndexedDB変数修正模写</title>
         <style>
             body {
-                background-color: gray;
-            }
+    background-color: #2c3e50; /* 暗めの背景で集中力を高める */
+    color: white;
+    font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", sans-serif;
+    text-align: center;
+    margin: 0;
+    padding: 20px;
+}
+
+/* ボタンの共通スタイル */
+button {
+    font-size: 1.2rem;
+    font-weight: bold;
+    padding: 15px 25px;
+    margin: 10px;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    box-shadow: 0 4px #999;
+    width: 80%; /* スマホで押しやすいよう横幅を広く */
+    max-width: 400px;
+}
+
+button:active {
+    box-shadow: 0 1px #666;
+    transform: translateY(4px);
+}
+
+button:disabled {
+    background-color: #7f8c8d !important;
+    box-shadow: none;
+    transform: none;
+    opacity: 0.6;
+}
+
+/* 各ボタンの色分け */
+#recStart { background-color: #e74c3c; color: white; } /* 赤：録音 */
+#recStop { background-color: #c0392b; color: white; }
+#playStart { background-color: #27ae60; color: white; } /* 緑：開始 */
+#playNext { background-color: #2980b9; color: white; } /* 青：次へ */
+#playOneMore { background-color: #f39c12; color: white; } /* オレンジ：もう一度 */
+
+/* 状態表示 */
+#status {
+    font-size: 1.5rem;
+    color: #f1c40f;
+    margin: 20px 0;
+    height: 1.5rem;
+}
+
+/* カードの枚数表示 */
+#numberOfCards {
+    background-color: #34495e;
+    padding: 10px;
+    border-radius: 5px;
+    margin-top: 20px;
+}
+
+/* 録音リスト（スクロールできるように） */
+#list {
+    list-style: none;
+    padding: 0;
+    max-height: 200px;
+    overflow-y: auto;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+}
+
+#list li {
+    padding: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+}
+
+#list button {
+    width: auto;
+    font-size: 0.8rem;
+    padding: 5px 10px;
+}
         </style>
     </head>
     <body>
@@ -192,7 +270,16 @@
 
                 req.onsuccess = ()=>{
                     const audioURL = URL.createObjectURL(req.result.audio);
-                    new Audio(audioURL).play();
+                    const audio = new Audio(audioURL);
+
+                    // 再生が終わったらメモリを開放する※これがないとどんどんメモリに溜まるらしい
+                    audio.onended = () =>{
+                        URL.revokeObjectURL(audioURL);
+                        console.log("メモリを解放しました")
+                    };
+
+                    audio.play();
+
                 };
             }
 
