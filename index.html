@@ -2,54 +2,43 @@
 <html lang="ja">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>IndexedDB変数修正模写</title>
+        <title>かるた読み札 録音・再生ページ</title>
         <style>
             body {
-    background-color: gray;
-    font-family: sans-serif;
-    padding: 10px;
-}
-
-button {
-    width: 100%;
-    max-width: 400px;
-    padding: 15px;
-    margin: 8px 0;
-    font-size: 16px;
-}
-
-ul {
-    padding-left: 0;
-}
-
-li {
-    list-style: none;
-    margin-bottom: 10px;
-}
+                background-color: gray;
+            }
         </style>
-       
     </head>
     <body>
 
             <button id="dbReset">（開発用）DB初期化</button> <!-- audioDBを削除 -->
             <button id="recStart">録音開始</button>
+            <div id="status"></div>
             <button id="recStop">録音停止して保存</button>
-            <button id="play">再生</button>
-    
-            <button id="shufflePlay">シャッフルして再生</button>
+            
+            <button id="playStart" onclick="playStart()">かるた開始ボタン</button>
 
-            <button onclick="playStart()">かるた開始ボタン</button>
-
-            <button onclick="playNext()">次の札</button>
+            <button id="playOneMore" onclick="playOneMore()" disabled>もう一度聞く</button>
+            <button id="playNext" onclick="playNext()" disabled>次の札</button>
     
             <h2>保存された音声の一覧</h2>
             <ul id="list"></ul>
 
+
+
         <script>
+
             let db;//変数データベースを定義
             let mediaRecorder;//メディアレコーダーを定義
             let chunks = [];//録音したやつを入れる配列を定義
+
+            //カウントダウン用
+            const MAX_SEC = 15; //録音時間もこれで設定
+            const status = document.getElementById("status");
+            let remaining = 0;
+            let countdownTimer = null;
+            let stopTimer = null;
+
 
             //DBを開く
             const request = indexedDB.open("audioDB",1);
@@ -66,30 +55,81 @@ li {
             };
 
             //録音開始
+            let stream;
+            let stopTimerId; 
             document.getElementById("recStart").onclick = async ()=>{
-                const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+
+                disableDuringRecording()
+
+                stream = await navigator.mediaDevices.getUserMedia({audio:true});
                 mediaRecorder = new MediaRecorder(stream);
                 chunks = [];
 
                 mediaRecorder.ondataavailable = event => chunks.push(event.data); //リクエストが成功した=>を実行
                 mediaRecorder.start();
+
+                //カウントダウン開始
+                remaining = MAX_SEC;
+                status.textContent = `録音中 残り${remaining}秒`;
+
+                countdownTimer = setInterval(()=>{
+                    remaining--;
+                    status.textContent = `録音中 残り${remaining}秒`;
+
+                    if(remaining <= 0){
+                        clearInterval(countdownTimer);
+                    }
+                },1000);
+
+                
+                //止め忘れ防止のため、時間がったら録音を止める
+                stopTimerId = setTimeout(() =>{
+                    recStop();
+                },MAX_SEC * 1000);
+
             };
 
             
 
             //停止して保存
-            document.getElementById("recStop").onclick = () =>{
+            document.getElementById("recStop").onclick = recStop;
+            function recStop(){
+
+                enableAfterRecording();
+
+                //タイマー停止
+                if(countdownTimer){
+                    clearInterval(countdownTimer);
+                    countdownTimer = null;
+                }
+
+                //タイマーがあれば解除
+                if(stopTimerId){
+                    clearTimeout(stopTimerId);
+                    stopTimerId = null;
+                }
+
+                status.textContent = "";
+
+
+                //録音中ではないときに停止ボタンを押したとき
+                if(!mediaRecorder || mediaRecorder.state !=="recording"){
+                    console.log("録音中ではないため止めません");
+                    return;
+                }
+
                 mediaRecorder.stop();
                 
                 mediaRecorder.onstop = () =>{
-                    const blob = new Blob(chunks,{type:"audio/mp4"});
+                    const blob = new Blob(chunks,{type:"audio/mp4"}); //"audio/webm"はiPhoneで使えない
 
                     const tx = db.transaction("voices","readwrite");
                     const store = tx.objectStore("voices");
                     const req = store.count(); //storeの数を数える。非同期なのでonsuccessが必要
 
                     req.onsuccess = () =>{
-                        store.add({audio:blob});//idはautoIncrementで自動付与※削除してもidは戻らない
+                        store.add({audio:blob}); //idはautoIncrementで自動付与
+                                                // ※録音したものを削除してもidは戻らない
                         console.log(`voices は ${req.result} 件あります`);
                     }
                     tx.oncomplete = () => {
@@ -97,21 +137,20 @@ li {
                       showList();
                     };
                 };
+                
+                //マイクを完全に止める※しないと電力消費し続ける
+                const tracks = stream?.getTracks();
+                if(tracks){
+                    tracks.forEach((track) => {
+                      track.stop();
+                      console.log("マイクは完全に停止しました")
+                    });
+                    stream = null;
+                }
+
             };
 
-            //再生
-            document.getElementById("play").onclick = () =>{
-                const tx = db.transaction("voices","readonly");
-                const store = tx.objectStore("voices");
-                const req = store.getAll();
-
-                req.onsuccess = () =>{
-                    const last = req.result.at(-1);
-                    const audioURL = URL.createObjectURL(last.audio);
-                    new Audio(audioURL).play();
-                };
-            };
-
+            //一覧を表示
             function showList(){
                 const ul = document.getElementById("list");
                 ul.innerHTML = "";//一度クリア
@@ -145,6 +184,7 @@ li {
                 }
             }
 
+            //データベースから音声を再生
             function playSound(id){
                 const tx = db.transaction("voices","readonly");
                 const store = tx.objectStore("voices");
@@ -156,6 +196,7 @@ li {
                 };
             }
 
+            //データベースの読み札を削除
             function deleteSound(id){
                 const tx = db.transaction("voices", "readwrite");
                 const store = tx.objectStore("voices");
@@ -167,6 +208,7 @@ li {
                 };
             }
 
+            //データベースからidだけを読みだして配列にする？
             function loadIds(){
                 return new Promise(resolve =>{
                     const tx = db.transaction("voices","readonly");
@@ -181,11 +223,12 @@ li {
                             cursor.continue();
                         }
                     };
-        
+
                     tx.oncomplete = ()=> resolve(ids);
                 });
             }
 
+            //idをシャッフル
             function shuffle(array){
                 for(let i = array.length-1;i>0;i--){
                     const j = Math.floor(Math.random()*(i+1));
@@ -203,6 +246,7 @@ li {
             //シャッフルして再生
             let shuffledIds = [];
             let currentIndex = 0;
+            let numberOfCards;
 
             async function prepare() {
                 shuffledIds = await loadIds();
@@ -215,41 +259,84 @@ li {
                 const result = confirm("かるたをはじめますか？")
                 if(!result) return;
                 showList();
+                disableDuringPlay();
                 await prepare();
-                alert("準備完了！");
+                alert("準備完了！※読み札が再生されます");
+                //何枚目かの表示を作る
+                if(!numberOfCards){
+                    numberOfCards = document.createElement("h3");
+                    numberOfCards.id = "numberOfCards";
+                    numberOfCards.textContent = `${shuffledIds.length}枚目中、${1}枚目`;
+                    document.body.appendChild(numberOfCards);
+                }else{
+                    numberOfCards.textContent = `${shuffledIds.length}枚目中、${1}枚目`;
+                }
+                playNext();
             }
 
+            let playId;
             function playNext(){
-
                 if(currentIndex >= shuffledIds.length){
                     alert("全部再生しました");
+                    enableAfterPlay();
                     return;
                 }
-                const id = shuffledIds[currentIndex];
+                playId = shuffledIds[currentIndex];
                 currentIndex++;
 
-                playSound(id);
+                playSound(playId);
+                numberOfCards.textContent = `${shuffledIds.length}枚目中、${currentIndex}枚目`;
+            }
+
+            function playOneMore(){
+                playSound(playId);
             }
 
 
-            
-            //何枚目かの表示を作る
-            if(!numberOfCards){
-                numberOfCards = document.createElement("h3");
-                numberOfCards.id = numberOfCards;
-                numberOfCards.textContent = `${1}枚目中、${1}枚目`;
-                document.body.appendChild(numberOfCards);
-                
+            function disableDuringRecording(){
+                document.getElementById("recStart").disabled = true;
+                //document.getElementById("play").disabled = true;
+                //document.getElementById("shufflePlay").disabled = true;
+                document.getElementById("playStart").disabled = true;
+                document.getElementById("playNext").disabled = true;
+                document.getElementById("playOneMore").disabled = true;
+                console.log("ボタン使用不可！")
             }
-                
+
+            function enableAfterRecording(){
+                document.getElementById("recStart").disabled = false;
+                //document.getElementById("play").disabled = false;
+                //document.getElementById("shufflePlay").disabled = false;
+                document.getElementById("playStart").disabled = false;
+                //document.getElementById("playNext").disabled = false;
+                //document.getElementById("playOneMore").disabled = false;
+                console.log("ボタン使用可能！")
+            }
+
+            function disableDuringPlay(){
+                document.getElementById("recStart").disabled = true;
+                document.getElementById("recStop").disabled = true;
+                //document.getElementById("play").disabled = true;
+                //document.getElementById("shufflePlay").disabled = true;
+                document.getElementById("playStart").disabled = true;
+                document.getElementById("playNext").disabled = false;
+                document.getElementById("playOneMore").disabled = false;
+                console.log("プレイ開始。ボタン使用不可！")
+            }
+
+            function enableAfterPlay(){
+                document.getElementById("recStart").disabled = false;
+                document.getElementById("recStop").disabled = false;
+                //document.getElementById("play").disabled = false;
+                //document.getElementById("shufflePlay").disabled = false;
+                document.getElementById("playStart").disabled = false;
+                document.getElementById("playNext").disabled = true;
+                document.getElementById("playOneMore").disabled = true;
+                console.log("プレイ終了。ボタン使用可能！")
+            }
+
 
             </script>
     </body>
 
-
 </html>
-
-
-
-
-
