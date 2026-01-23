@@ -1,9 +1,11 @@
 <!DOCTYPE html>
 <html lang="ja">
     <head>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width,initial-scale=1">
-
+        <!-- スマホ対応の必須タグ -->
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
         <title>IndexedDB変数修正模写</title>
         <style>
             body{
@@ -15,9 +17,24 @@
                 padding: 20px;
             }
 
+            /* iPhoneを横向きにしたときに、勝手に文字が大きくなるのを防ぐらしい */
+            html {
+                -webkit-text-size-adjust: 100%;
+            }
+
+            /* iPhoneのボタンの変な影を消すらしい */
+            button {
+                -webkit-appearance: none;
+                appearance: none;
+            }
+
             /* ボタン共通スタイル */
             button{
-                display: block;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+
                 width: 100%;
                 max-width: 500px;
                 margin: 15px auto;
@@ -34,11 +51,16 @@
 
             /* アコーディオン用のスタイル */
             .accordion-content{
+                display: block;
+                width: 100%;
+                max-width: 500px;
+                margin: 0 auto;
+                box-sizing: border-box;
                 max-height: 0;
                 overflow: hidden;
                 transition: max-height 0.3s ease-out;
                 background: rgba(255,255,255,0.05);
-                border-radius: 0 0 10px 10px;
+                border-radius: 10px;
             }
 
             .accoridon-title{
@@ -46,9 +68,10 @@
                 color: white;
                 cursor: pointer;
                 padding: 10px;
-                margin-top: 20px;
+                margin: 20px auto;
                 border-radius: 10px;
                 user-select: none;
+                box-sizing: border-box;
             }
 
             #dbReset{
@@ -62,7 +85,9 @@
 
             button:active {
                 box-shadow: 0 1px #666;
-                transform: translateY(4px);
+                transform: translateY(2px);
+                /* 押し込んだ時に少し暗くする */
+                background-image: linear-gradient(rgba(0,0,0,0.2),rgba(0,0,0,0.2));
             }
 
             button:disabled {
@@ -76,6 +101,7 @@
             #recStart {background-color: #e74c3c; color:white;}
             #recStop {background-color: #c0392b; color: white;}
             #playStart {background-color: #27ae60; color:white;}
+            #playBefore {background-color: #7f8c8d; color:white;}
             #playNext {background-color: #2980b9; color:white;}
             #playOneMore {background-color: #f39c12; color:white;}
             
@@ -96,27 +122,58 @@
             }
 
             /* 録音リスト（スクロールできるように） */
-            #list{
+            #list{               
                 list-style: none;
                 padding: 0;
-                max-height: 200px;
-                overflow-y: auto;
+                margin: 0;
+                
                 background:  rgba(255,255,255,0.1);
-                border-radius: 10px;
+                border-radius: 10px ;
             }
 
             #list li{
-                padding: 10px;
-                border-bottom: 1px solid rgba(255,255,255,0.2);
+                padding: 15px;
+                border-bottom: 1px solid rgba(255,255,255,0.1);
                 display: flex;
                 justify-content: space-around;
                 align-items: center;
             }
 
+            /* リストの中にあるボタン専用の設定 */
             #list button{
                 width: auto;
-                font-size: 0.8rem;
-                padding: 5px 10px;
+                margin: 0 5px;
+                padding: 8px 15px;
+                font-size: 0.9rem;
+                box-shadow: 0 4px #63686b;
+            }
+            
+            /* 最後のアイテムの線は消す */
+            #list li:last-child{
+                border-bottom: none;
+            }
+
+            /* 2つ並べるための枠組み */
+            .button-row {
+                display: flex;          /* 横に並べる */
+                justify-content: center; /* 中央寄せ */
+                gap: 10px;              /* ボタン同士の隙間 */
+                width: 100%;
+                max-width: 500px;
+                margin: 0 auto;         /* 全体を中央寄せ */
+            }
+
+            /* 横並びの時のボタン専用スタイル */
+            .button-row button {
+                flex: 1;                /* 幅を均等に分ける */
+                margin: 10px 0;         /* 縦の余白だけ残す */
+                font-size: 1rem;        /* 2つ並ぶので文字を少し小さく */
+                padding: 15px 5px;      /* 左右のパディングを削る */
+            }
+
+            /* 「次の札」ボタン（単体）は今まで通りのスタイル */
+            #playNext {
+                margin-top: 10px;
             }
 
 
@@ -125,21 +182,41 @@
     <body>
 
             <button id="dbReset">（開発用）DB初期化</button> <!-- audioDBを削除 -->
-            <button id="recStart">録音開始</button>
+            <button id="recStart">
+                <span class="material-symbols-outlined">mic</span>録音開始</button>
             <div id="status"></div>
-            <button id="recStop">録音停止して保存</button>
+            <button id="recStop">
+                <span class="material-symbols-outlined">square</span>録音停止して保存</button>
             
-            <button id="playStart" onclick="playStart()">かるた開始ボタン</button>
+            <button id="playStart" onclick="playStart()">
+                <span class="material-symbols-outlined">celebration</span>かるた開始ボタン</button>
 
-            <button id="playOneMore" onclick="playOneMore()" disabled>もう一度聞く</button>
-            <button id="playNext" onclick="playNext()" disabled>次の札</button>
-    
+            <!-- <button id="playOneMore" onclick="playOneMore()" disabled>
+                <span class="material-symbols-outlined">replay</span>もう一度聞く</button>
+            <button id="playBefore" onclick="playBefore()" disabled>
+                <span class="material-symbols-outlined">skip_previous</span>前の札</button>
+            <button id="playNext" onclick="playNext()" disabled>
+                <span class="material-symbols-outlined">skip_next</span>次の札</button> -->
+            <div class="button-row">
+                <button id="playBefore" onclick="playBefore()" disabled>
+                    <span class="material-symbols-outlined">skip_previous</span>前の札
+                </button>
+                <button id="playOneMore" onclick="playOneMore()" disabled>
+                    <span class="material-symbols-outlined">replay</span>もう一度
+                </button>
+            </div>
+            <button id="playNext" onclick="playNext()" disabled>
+                <span class="material-symbols-outlined">skip_next</span>次の札
+            </button>
+            <h3 id="numberOfCards"> </h3>
+            
             <!-- <h2>保存された音声の一覧</h2>
             <ul id="list"></ul> -->
 
-            <div class="accordion-title" onclick="toggleAccordion()">
-                ▼ 保存された音声を確認する
+            <div id="accordion-btn" class="accordion-title" onclick="toggleAccordion()">
+                <span id="arrow">▼</span> 保存された音声を確認する
             </div>
+
             <div id="accordion" class="accordion-content">
                 <ul id="list"></ul>
             </div>
@@ -289,6 +366,7 @@
 
                     results.forEach(element => {
                         const li = document.createElement("li");
+                    
 
                         const playbtn = document.createElement("button");
                         playbtn.textContent = "再生";
@@ -379,7 +457,7 @@
 
             //シャッフルして再生
             let shuffledIds = [];
-            let currentIndex = 0;
+            let currentIndex = 0
             let numberOfCards;
 
             async function prepare() {
@@ -398,10 +476,9 @@
                 alert("準備完了！※読み札が再生されます");
                 //何枚目かの表示を作る
                 if(!numberOfCards){
-                    numberOfCards = document.createElement("h3");
-                    numberOfCards.id = "numberOfCards";
+                    numberOfCards = document.getElementById("numberOfCards");
                     numberOfCards.textContent = `${shuffledIds.length}枚目中、${1}枚目`;
-                    document.body.appendChild(numberOfCards);
+                    
                 }else{
                     numberOfCards.textContent = `${shuffledIds.length}枚目中、${1}枚目`;
                 }
@@ -422,6 +499,13 @@
                 numberOfCards.textContent = `${shuffledIds.length}枚目中、${currentIndex}枚目`;
             }
 
+            function playBefore(){
+                if(currentIndex >= 2){
+                    currentIndex -= 2;
+                    playNext();
+                }
+            }
+
             function playOneMore(){
                 playSound(playId);
             }
@@ -429,8 +513,7 @@
 
             function disableDuringRecording(){
                 document.getElementById("recStart").disabled = true;
-                //document.getElementById("play").disabled = true;
-                //document.getElementById("shufflePlay").disabled = true;
+                document.getElementById("playBefore").disabled = true;
                 document.getElementById("playStart").disabled = true;
                 document.getElementById("playNext").disabled = true;
                 document.getElementById("playOneMore").disabled = true;
@@ -439,9 +522,8 @@
 
             function enableAfterRecording(){
                 document.getElementById("recStart").disabled = false;
-                //document.getElementById("play").disabled = false;
-                //document.getElementById("shufflePlay").disabled = false;
                 document.getElementById("playStart").disabled = false;
+                //document.getElementById("playBefore").disabled = false;
                 //document.getElementById("playNext").disabled = false;
                 //document.getElementById("playOneMore").disabled = false;
                 console.log("ボタン使用可能！")
@@ -451,8 +533,8 @@
                 document.getElementById("recStart").disabled = true;
                 document.getElementById("recStop").disabled = true;
                 //document.getElementById("play").disabled = true;
-                //document.getElementById("shufflePlay").disabled = true;
                 document.getElementById("playStart").disabled = true;
+                document.getElementById("playBefore").disabled = false;
                 document.getElementById("playNext").disabled = false;
                 document.getElementById("playOneMore").disabled = false;
                 console.log("プレイ開始。ボタン使用不可！")
@@ -464,8 +546,10 @@
                 //document.getElementById("play").disabled = false;
                 //document.getElementById("shufflePlay").disabled = false;
                 document.getElementById("playStart").disabled = false;
+                document.getElementById("playBefore").disabled = true;
                 document.getElementById("playNext").disabled = true;
                 document.getElementById("playOneMore").disabled = true;
+                numberOfCards.textContent = "";
                 console.log("プレイ終了。ボタン使用可能！")
             }
             
@@ -473,9 +557,11 @@
                 const content = document.getElementById("accordion");
                 if (content.style.maxHeight) {
                     content.style.maxHeight = null;
+                    arrow.textContent = "▼";
                 } else {
                     // 中身の高さに合わせて開く
                     content.style.maxHeight = content.scrollHeight + "px";
+                    arrow.textContent = "▲";
                 }
             }
             
@@ -484,4 +570,3 @@
     </body>
 
 </html>
-
